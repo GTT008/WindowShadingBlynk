@@ -1,0 +1,139 @@
+// ==== TEMPLATE SETTINGS UGM ====
+// Replace the placeholders below with your specific values.
+
+#define BLYNK_TEMPLATE_ID "XXXXXX"  // Replace with your Blynk Template ID
+#define BLYNK_TEMPLATE_NAME "XXXXXX"  // Replace with your Blynk Template Name
+#define BLYNK_AUTH_TOKEN "XXXXXX"  // Replace with your Blynk Auth Token
+
+#define WIFI_SSID "XXXXXX"  // Replace with your WiFi SSID
+#define WIFI_PASSWORD "XXXXXX"  // Replace with your WiFi password
+
+// Servo PWM values
+#define CW 1900   // PWM value for clockwise rotation (pulling the shading)
+#define STOP 1450 // PWM value to stop the servo
+#define CCW 1000  // PWM value for counterclockwise rotation (lowering the shading)
+
+// ==== LIBRARIES ====
+#include <Servo.h>
+#include <BlynkSimpleEsp8266.h>
+#include <ESP8266WiFi.h>
+
+// ==== GLOBAL VARIABLES ====
+Servo servo1, servo2, servo3;
+const int ldrPin = A0; // LDR connected to analog pin A0
+int ldrValue = 0;      // Light intensity value from LDR
+int currentAngle = 0;  // Current angle for Servo 1 and Servo 3
+const int targetAngle = 90; // Target angle for shading
+bool isShadingDown = false; // Shading status: false = pulled up, true = lowered
+bool autoMode = false;      // Auto mode status (controlled by V2)
+
+// ==== BLYNK FUNCTIONS ====
+BLYNK_WRITE(V1) { 
+  int state = param.asInt();
+  if (state == 1) {
+    // Pull shading up
+    moveServosToAngle(targetAngle);
+    controlShading(CW, false);
+  } else {
+    // Lower shading
+    controlShading(CCW, true);
+  }
+}
+
+BLYNK_WRITE(V2) { 
+  autoMode = param.asInt();
+  Serial.println(autoMode ? "Auto mode activated." : "Auto mode deactivated.");
+}
+
+BLYNK_WRITE(V3) { 
+  if (!autoMode && isShadingDown) {
+    int angle = constrain(param.asInt(), 0, 180);
+    moveServosToAngle(angle);
+    currentAngle = angle;
+    Serial.print("Servos moved to angle: ");
+    Serial.println(angle);
+  } else {
+    Serial.println("Cannot adjust manually; Auto mode is active.");
+  }
+}
+
+// ==== HELPER FUNCTIONS ====
+void controlShading(int pwmValue, bool shadingDown) {
+  servo2.writeMicroseconds(pwmValue);
+  delay(10000); // Adjust delay as needed for shading operation
+  servo2.writeMicroseconds(STOP);
+  isShadingDown = shadingDown;
+  autoMode = shadingDown;
+  Blynk.virtualWrite(V2, autoMode ? 1 : 0);
+}
+
+void moveServosToAngle(int angle) {
+  for (int i = currentAngle; i != angle; i += (currentAngle < angle ? 1 : -1)) {
+    servo1.write(i);
+    servo3.write(i);
+    delay(15);
+  }
+  currentAngle = angle;
+}
+
+void reconnectWiFi() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi disconnected. Reconnecting...");
+    WiFi.disconnect();
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    int retry = 0;
+    while (WiFi.status() != WL_CONNECTED && retry < 20) {
+      delay(500);
+      Serial.print(".");
+      retry++;
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("\nWiFi reconnected.");
+      Serial.print("IP Address: ");
+      Serial.println(WiFi.localIP());
+    } else {
+      Serial.println("\nFailed to reconnect to WiFi.");
+    }
+  }
+}
+
+// ==== SETUP ====
+void setup() {
+  Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println("\nWiFi connected.");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+  Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASSWORD);
+
+  servo1.attach(D1, 500, 2400);
+  servo2.attach(D2);
+  servo3.attach(D0, 500, 2400);
+  pinMode(ldrPin, INPUT);
+}
+
+// ==== LOOP ====
+void loop() {
+  Blynk.run();
+  reconnectWiFi();
+
+  if (autoMode && isShadingDown) {
+    ldrValue = analogRead(ldrPin);
+    int mappedAngle = map(ldrValue, 0, 1024, 0, 180);
+    if (currentAngle != mappedAngle) {
+      moveServosToAngle(mappedAngle);
+      currentAngle = mappedAngle;
+      Blynk.virtualWrite(V4, currentAngle);
+      Serial.print("Auto-adjusted angle to: ");
+      Serial.println(mappedAngle);
+    }
+  }
+  delay(1000);
+}
+// ==== CREATE BY GTT008 UGM ====
+// ==== PLEASE DONT DELETE THIS ====
